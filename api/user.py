@@ -48,9 +48,9 @@ async def user_set_is_active(
 
         for pr in open_prs_to_reassign:
             exclude_ids = [pr.author_id]
+            pr_reviewers = await pr.awaitable_attrs.reviewer_associations
             exclude_ids.extend([
-                assoc.user_id for assoc in pr.reviewer_associations
-                if assoc.user_id != user.user_id
+                assoc.user_id for assoc in pr_reviewers
             ])
 
             candidates = await UserCrud.get_active_candidates(
@@ -59,17 +59,16 @@ async def user_set_is_active(
                 exclude_ids=exclude_ids
             )
 
+            old_association = next(
+                (assoc for assoc in pr_reviewers if assoc.user_id == user.user_id),
+                None
+            )
+            if old_association:
+                await session.delete(old_association)
+                await session.flush()
+
             if candidates:
                 new_reviewer = choice(candidates)
-
-                old_association = next(
-                    (assoc for assoc in pr.reviewer_associations if assoc.user_id == user.user_id),
-                    None
-                )
-                if old_association:
-                    await session.delete(old_association)
-                    await session.flush()
-
                 new_association = PullRequestReviewer(
                     user_id=new_reviewer.user_id,
                     pull_request_id=pr.pull_request_id

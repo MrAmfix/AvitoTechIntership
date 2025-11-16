@@ -120,8 +120,8 @@ async def pull_request_merge(
     status_code=HTTP_200_OK
 )
 async def pull_request_reassign(
-    reassign_data: PullRequestReassignSchema,
-    session: AsyncSession = Depends(get_session)
+        reassign_data: PullRequestReassignSchema,
+        session: AsyncSession = Depends(get_session)
 ):
     try:
         pr = await PullRequestCrud.get_by_id(session, reassign_data.pull_request_id)
@@ -159,7 +159,6 @@ async def pull_request_reassign(
         exclude_ids = [pr.author_id]
         exclude_ids.extend([
             assoc.user_id for assoc in pr.reviewer_associations
-            if assoc.user_id != old_user.user_id
         ])
 
         candidates = await UserCrud.get_active_candidates(
