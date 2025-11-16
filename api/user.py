@@ -7,7 +7,7 @@ from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND, HTTP_500_INTERNAL_
 from api.schemas import UserResponseSchema, UserSetIsActiveSchema, UserReviewListSchema
 from database.crud.user_crud import UserCrud
 from database.gen_session import get_session
-from database.models import PRStatus
+from database.models import PRStatus, PullRequestReviewer
 
 u_router = APIRouter(prefix='/users')
 
@@ -18,8 +18,8 @@ u_router = APIRouter(prefix='/users')
     status_code=HTTP_200_OK
 )
 async def user_set_is_active(
-    user_data: UserSetIsActiveSchema, 
-    session: AsyncSession = Depends(get_session)
+        user_data: UserSetIsActiveSchema,
+        session: AsyncSession = Depends(get_session)
 ):
     try:
         user = await UserCrud.get_by_id(session, user_data.user_id)
@@ -40,18 +40,18 @@ async def user_set_is_active(
             return user
 
         open_prs_to_reassign = [
-            pr for pr in user.assigned_reviews
-            if pr.status == PRStatus.OPEN
+            assoc.pull_request for assoc in user.reviewer_associations
+            if assoc.pull_request.status == PRStatus.OPEN
         ]
 
         user.is_active = False
 
         for pr in open_prs_to_reassign:
             exclude_ids = [pr.author_id]
-            exclude_ids.extend(
-                [rev.user_id for rev in pr.assigned_reviewers
-                 if rev.user_id != user.user_id]
-            )
+            exclude_ids.extend([
+                assoc.user_id for assoc in pr.reviewer_associations
+                if assoc.user_id != user.user_id
+            ])
 
             candidates = await UserCrud.get_active_candidates(
                 session=session,
@@ -59,10 +59,23 @@ async def user_set_is_active(
                 exclude_ids=exclude_ids
             )
 
-            new_reviewer = choice(candidates)
-            pr.assigned_reviewers.remove(user)
-            if new_reviewer:
-                pr.assigned_reviewers.append(new_reviewer)
+            if candidates:
+                new_reviewer = choice(candidates)
+
+                old_association = next(
+                    (assoc for assoc in pr.reviewer_associations if assoc.user_id == user.user_id),
+                    None
+                )
+                if old_association:
+                    await session.delete(old_association)
+                    await session.flush()
+
+                new_association = PullRequestReviewer(
+                    user_id=new_reviewer.user_id,
+                    pull_request_id=pr.pull_request_id
+                )
+                session.add(new_association)
+                await session.flush()
 
         await session.commit()
         await session.refresh(user)

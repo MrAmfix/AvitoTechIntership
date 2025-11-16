@@ -2,7 +2,6 @@ import enum
 from typing import List, Optional
 from sqlalchemy import String, Boolean, ForeignKey, Enum, DateTime
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -65,12 +64,13 @@ class User(Base):
         'PullRequestReviewer',
         back_populates='user',
         lazy='selectin',
-        cascade='all, delete-orphan'
+        cascade='all, delete-orphan',
+        passive_deletes=True
     )
 
-    assigned_reviews: Mapped[List['PullRequest']] = association_proxy(
-        'reviewer_associations', 'pull_request'
-    )
+    @property
+    def assigned_reviews(self) -> List['PullRequest']:
+        return [assoc.pull_request for assoc in self.reviewer_associations]
 
 
 class PullRequest(Base):
@@ -102,12 +102,13 @@ class PullRequest(Base):
         'PullRequestReviewer',
         back_populates='pull_request',
         lazy='selectin',
-        cascade='all, delete-orphan'
+        cascade='all, delete-orphan',
+        passive_deletes=True
     )
 
-    assigned_reviewers: Mapped[List['User']] = association_proxy(
-        'reviewer_associations', 'user'
-    )
+    @property
+    def assigned_reviewers(self) -> List['User']:
+        return [assoc.user for assoc in self.reviewer_associations]
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

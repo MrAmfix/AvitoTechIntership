@@ -11,7 +11,7 @@ from api.schemas import PullRequestResponseSchema, PullRequestCreateSchema, Pull
 from database.crud.pull_request_crud import PullRequestCrud
 from database.crud.user_crud import UserCrud
 from database.gen_session import get_session
-from database.models import PRStatus
+from database.models import PRStatus, PullRequestReviewer
 
 pr_router = APIRouter(prefix='/pullRequest')
 
@@ -145,14 +145,22 @@ async def pull_request_reassign(
                 detail={"error": {"code": "NOT_FOUND", "message": "User to be replaced not found"}}
             )
 
-        if old_user not in pr.assigned_reviewers:
+        is_assigned = any(
+            assoc.user_id == old_user.user_id
+            for assoc in pr.reviewer_associations
+        )
+
+        if not is_assigned:
             raise HTTPException(
                 status_code=HTTP_409_CONFLICT,
                 detail={"error": {"code": "NOT_ASSIGNED", "message": "Reviewer is not assigned to this PR"}}
             )
 
         exclude_ids = [pr.author_id]
-        exclude_ids.extend([reviewer.user_id for reviewer in pr.assigned_reviewers])
+        exclude_ids.extend([
+            assoc.user_id for assoc in pr.reviewer_associations
+            if assoc.user_id != old_user.user_id
+        ])
 
         candidates = await UserCrud.get_active_candidates(
             session=session,
@@ -168,8 +176,20 @@ async def pull_request_reassign(
 
         new_reviewer = choice(candidates)
 
-        pr.assigned_reviewers.remove(old_user)
-        pr.assigned_reviewers.append(new_reviewer)
+        old_association = next(
+            (assoc for assoc in pr.reviewer_associations if assoc.user_id == old_user.user_id),
+            None
+        )
+        if old_association:
+            await session.delete(old_association)
+            await session.flush()
+
+        new_association = PullRequestReviewer(
+            user_id=new_reviewer.user_id,
+            pull_request_id=pr.pull_request_id
+        )
+        session.add(new_association)
+        await session.flush()
 
         await session.commit()
         await session.refresh(pr)
