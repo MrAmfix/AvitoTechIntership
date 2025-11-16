@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  db:
+    container_name: "Database"
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    networks:
+      - avito_network
+    volumes:
+      - postgres_data_avito:/var/lib/postgresql/data
+
+  api:
+    container_name: "API"
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - .:/app
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_IP=db
+      - POSTGRES_PORT=5432
+      - PYTHONUNBUFFERED=1
+    networks:
+      - avito_network
+
+networks:
+  avito_network:
+    driver: bridge
+
+volumes:
+  postgres_data_avito:
